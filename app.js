@@ -3,6 +3,14 @@ import { CORE_PLATFORMS, DASH, collectPlatformRows, formatField, formatMetric, l
 const $ = selector => document.querySelector(selector);
 const state = { data: null, passphrase: null, mode: 'live', project: 'all', expanded: null, remembered: false, demoTimer: null };
 const labels = Object.fromEntries(CORE_PLATFORMS);
+const METRIC_LABELS={plays:"播放",views:"观看",reads:"阅读",likes:"点赞",comments:"评论",shares:"分享",collects:"收藏",impressions:"曝光",ctr:"点击率",completionRate:"完播率",avgPlayShare:"平均播放比例",retain5s:"5秒留存",recommends:"推荐"};
+const STATUS_LABELS={published:"已发布",draft:"草稿",reviewing:"审核中",scheduled:"定时发布",pending:"待发布",deleted:"已删除",private:"仅自己可见"};
+const LAMP_LABELS={green:"正常",yellow:"待复核",red:"需登录",neutral:"未检测"};
+const PRIORITY_LABELS={high:"高",medium:"中",low:"低",P0:"紧急",P1:"高",P2:"中",P3:"低"};
+const trStatus=v=>STATUS_LABELS[v]||safeText(v);
+const trLamp=v=>LAMP_LABELS[v]||safeText(v);
+const trPriority=v=>PRIORITY_LABELS[v]||safeText(v);
+
 const demoValue = (n, step) => Math.round((n + step * 997) % 85000 + 4000);
 function safeText(value) { return value === null || value === undefined || value === '' ? DASH : String(value); }
 function setUnlock(message = '') { $('#loading').hidden = true; $('#dashboard').hidden = true; $('#unlock').hidden = false; $('#lock').hidden = true; $('#unlockError').textContent = message; }
@@ -58,11 +66,11 @@ function deltaHtml(value) { return `<span class="delta ${value>0?'up':value<0?'d
 function contentFields(content) {
   const metrics=content.metrics??{};
   const known=['plays','views','reads','likes','comments','shares','collects','impressions','ctr','completionRate','avgPlayShare','retain5s','recommends'];
-  return known.filter(key=>Object.hasOwn(metrics,key)).map(key=>`<div><dt>${key}</dt><dd>${formatField(key,metrics[key])}</dd></div>`).join('');
+  return known.filter(key=>Object.hasOwn(metrics,key)).map(key=>`<div><dt>${METRIC_LABELS[key]||key}</dt><dd>${formatField(key,metrics[key])}</dd></div>`).join('');
 }
 function renderDetails(row) {
   const platform=row.platform;
-  const details=row.contents.map(content=>`<article class="detail"><div class="detail-head"><strong>${safeText(content.title)}</strong><span class="muted">${safeText(content.status)}</span></div><dl>${contentFields(content)}</dl><div class="delta">较昨日 ${formatMetric(metricDelta([content],['plays','views','reads']))}</div>${content.url?`<a href="${content.url}" target="_blank" rel="noopener noreferrer">打开作品 ↗</a>`:''}</article>`).join('');
+  const details=row.contents.map(content=>`<article class="detail"><div class="detail-head"><strong>${safeText(content.title)}</strong><span class="muted status-badge">${trStatus(content.status)}</span></div><dl>${contentFields(content)}</dl><div class="delta">较昨日 ${formatMetric(metricDelta([content],['plays','views','reads']))}</div>${content.url?`<a href="${content.url}" target="_blank" rel="noopener noreferrer">打开作品 ↗</a>`:''}</article>`).join('');
   const diagnostic=(state.data?.diagnostics??[]).filter(item=>item.platform===platform.id||row.contents.some(content=>content.id===item.contentId)).map(item=>`${safeText(item.ruleId)}：${safeText(item.detail)}`).join(' · ')||'暂无本平台诊断';
   return `<div class="detail-list">${details||'<div class="empty">暂无作品明细</div>'}<div class="health-note">本平台诊断：${diagnostic}</div></div>`;
 }
@@ -75,16 +83,16 @@ function renderMarket() {
     const history=contents.flatMap(content=>content.daily_snapshots??[]);
     const points=sparkline(history,['plays','views','reads']); const lamp=source?.login?.state??'neutral';
     const expanded=state.expanded===id;
-    return `<article class="quote" data-platform="${id}"><div class="quote-head"><h3>${label}</h3><span class="lamp ${['green','yellow','red'].includes(lamp)?lamp:''}" title="登录态 ${safeText(lamp)}"></span></div><div class="health-note">${matches.length?`健康灯 ${safeText(lamp)}`:'待接入 / 无快照'}</div><div class="metrics"><div><div class="metric-label">播放 / 观看</div><div class="number">${formatMetric(values.plays)}</div>${deltaHtml(values.pd)}</div><div><div class="metric-label">阅读</div><div class="number">${formatMetric(values.reads)}</div>${deltaHtml(values.rd)}</div></div>${points?`<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline points="${points}"/></svg>`:'<div class="empty">7日趋势 —</div>'}${expanded?renderDetails({platform:{id,login:source?.login},contents}):''}</article>`;
+    return `<article class="quote" data-platform="${id}"><div class="quote-head"><h3>${label}</h3><span class="lamp ${['green','yellow','red'].includes(lamp)?lamp:''}" title="登录态 ${trLamp(lamp)}"></span></div><div class="health-note">${matches.length?`登录状态：${trLamp(lamp)}`:'待接入 / 无快照'}</div><div class="metrics"><div><div class="metric-label">播放 / 观看</div><div class="number">${formatMetric(values.plays)}</div>${deltaHtml(values.pd)}</div><div><div class="metric-label">阅读</div><div class="number">${formatMetric(values.reads)}</div>${deltaHtml(values.rd)}</div></div>${points?`<svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline points="${points}"/></svg>`:'<div class="empty">7日趋势 —</div>'}${expanded?renderDetails({platform:{id,login:source?.login},contents}):''}</article>`;
   }).join('');
   $('#platformGrid').innerHTML=cards;
   $('#platformGrid').querySelectorAll('[data-platform]').forEach(card=>card.onclick=event=>{if(event.target.closest('a'))return;const id=card.dataset.platform;state.expanded=state.expanded===id?null:id;renderMarket();});
   const other=rows.filter(row=>['xiaohongshu','x'].includes(row.platform.id));
-  $('#otherPlatforms').textContent=other.length?other.map(row=>`${row.platform.id==='x'?'X':'小红书'}：${safeText(row.platform.login?.state)} · ${safeText(row.platform.login?.asOf)}`).join('　/　'):'小红书 / X：待接入';
+  $('#otherPlatforms').textContent=other.length?other.map(row=>`${row.platform.id==='x'?'X':'小红书'}：${trLamp(row.platform.login?.state)} · ${safeText(row.platform.login?.asOf)}`).join('　/　'):'小红书 / X：待接入';
 }
 function renderRecommendations() {
   const items=state.data?.recommendations??[];
-  $('#recommendations').innerHTML=items.length?items.map((item,index)=>`<article class="strategy-card"><div class="priority">P${index+1} · ${safeText(item.priority)}</div><h3>${safeText(item.title)}</h3><p>${safeText(item.detail)}</p><small>规则 ${Array.isArray(item.ruleIds)?item.ruleIds.join(', '):safeText(item.ruleIds)}</small></article>`).join(''):'<div class="empty">暂无策略建议</div>';
+  $('#recommendations').innerHTML=items.length?items.map((item,index)=>`<article class="strategy-card"><div class="priority">优先级 ${index+1} · ${trPriority(item.priority)}</div><h3>${safeText(item.title)}</h3><p>${safeText(item.detail)}</p><small>依据规则：${Array.isArray(item.ruleIds)?item.ruleIds.join('、'):safeText(item.ruleIds)}</small></article>`).join(''):'<div class="empty">暂无策略建议</div>';
 }
 function render() { renderProjects();$('#matrix').hidden=state.project!=='all';if(state.project==='all')projectMatrix();renderMarket();renderRecommendations();$('#demoBanner').hidden=state.mode!=='demo'; }
 $('#unlockForm').addEventListener('submit',async event=>{event.preventDefault();const passphrase=$('#passphrase').value;$('#unlockError').textContent='';try{const envelope=await fetchData('data.enc.json');state.data=await decryptPwaEnvelope(envelope,passphrase);state.passphrase=passphrase;state.remembered=Boolean($('#remember').checked);if(state.remembered)localStorage.setItem('ops-pwa-passphrase',passphrase);else localStorage.removeItem('ops-pwa-passphrase');showDashboard();}catch(error){$('#unlockError').textContent=(error.name==='OperationError'||error.message?.includes('OperationError'))?'口令错误，未加载数据。':'解密失败，未加载数据。';}});
