@@ -8,14 +8,23 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="description" content="社媒运营中控平台">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="icon" href="./icons/favicon.png?v=6" type="image/png">
-  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png?v=6">
-  <link rel="stylesheet" href="./styles.css?v=6">
+  <link rel="icon" href="./icons/favicon.png?v=7" type="image/png">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png?v=7">
+  <link rel="stylesheet" href="./styles.css?v=7">
   <title>社媒运营中控平台</title>
 </head>
 <body>
   <header class="topbar">
-    <h1>社媒运营中控台</h1>
+    <div id="topbarHome" class="topbar-home">
+      <h1>社媒运营中控台</h1>
+    </div>
+    <div id="topbarPlatform" class="topbar-platform" hidden>
+      <button type="button" id="backOverview" class="back-btn" aria-label="返回总览">← 返回总览</button>
+      <div class="platform-heading">
+        <h1 id="platformName">平台</h1>
+        <span id="platformStatus" class="capsule">—</span>
+      </div>
+    </div>
     <div class="topbar-meta">
       <span id="asof">最近采集 —</span>
       <button id="refresh" class="icon-btn" type="button" title="刷新" aria-label="刷新">
@@ -28,30 +37,58 @@
   </header>
 
   <main id="dashboard" hidden>
-    <nav id="projects" class="segments" aria-label="项目切换"></nav>
-    <section id="hero" class="hero" aria-label="核心汇总"></section>
-    <section id="matrix" class="block" hidden>
-      <div class="block-head">
-        <h2>项目总览</h2>
-        <span>仅汇总已接入项目的可用数据</span>
-      </div>
-      <div id="projectCards" class="project-stage"></div>
-    </section>
-    <section class="block">
-      <div class="block-head">
-        <h2>平台数据</h2>
-        <span id="scope"></span>
-      </div>
-      <div id="platformGrid" class="market-grid"></div>
-      <div id="otherPlatforms" class="other-line"></div>
-    </section>
-    <section class="block">
-      <div class="block-head">
-        <h2>策略建议</h2>
-        <span>基于最新采集数据自动诊断</span>
-      </div>
-      <div id="recommendations" class="recommendations"></div>
-    </section>
+    <div id="overview">
+      <nav id="projects" class="segments" aria-label="项目切换"></nav>
+      <section id="hero" class="hero" aria-label="核心汇总"></section>
+      <section id="matrix" class="block" hidden>
+        <div class="block-head">
+          <h2>项目总览</h2>
+          <span>仅汇总已接入项目的可用数据</span>
+        </div>
+        <div id="projectCards" class="project-stage"></div>
+      </section>
+      <section class="block">
+        <div class="block-head">
+          <h2>平台数据</h2>
+          <span id="scope"></span>
+        </div>
+        <div id="platformGrid" class="market-grid"></div>
+        <div id="otherPlatforms" class="other-line"></div>
+      </section>
+      <section class="block">
+        <div class="block-head">
+          <h2>策略建议</h2>
+          <span>基于最新采集数据自动诊断</span>
+        </div>
+        <div id="recommendations" class="recommendations"></div>
+      </section>
+    </div>
+
+    <div id="platformView" hidden>
+      <nav id="platformSwitch" class="segments" aria-label="平台快切"></nav>
+      <section id="platformHero" class="hero platform-hero" aria-label="平台核心指标"></section>
+      <section class="block">
+        <div class="block-head">
+          <h2>趋势</h2>
+          <div id="trendRange" class="chip-set" role="tablist" aria-label="趋势区间"></div>
+        </div>
+        <div id="platformTrend" class="trend-card"></div>
+      </section>
+      <section class="block">
+        <div class="block-head">
+          <h2>作品表现</h2>
+          <div id="workSort" class="chip-set" role="tablist" aria-label="作品排序"></div>
+        </div>
+        <div id="workList" class="work-list"></div>
+      </section>
+      <section id="platformStrategy" class="block" hidden>
+        <div class="block-head">
+          <h2>策略建议</h2>
+          <span>仅展示当前平台相关建议</span>
+        </div>
+        <div id="platformRecommendations" class="recommendations"></div>
+      </section>
+    </div>
   </main>
 
   <section id="unlock" class="unlock" hidden>
@@ -65,6 +102,6 @@
     </form>
   </section>
   <div id="loading" class="loading">正在读取数据快照…</div>
-  <script type="module" src="./app.js?v=6"></script>
+  <script type="module" src="./app.js?v=7"></script>
 </body>
 </html>
