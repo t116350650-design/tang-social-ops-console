@@ -1,9 +1,70 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0B0E11"><meta name="description" content="社媒运营中控平台"><link rel="manifest" href="./manifest.webmanifest"><link rel="icon" href="./icons/favicon.png?v=5" type="image/png"><link rel="apple-touch-icon" href="./icons/apple-touch-icon.png?v=5"><link rel="stylesheet" href="./styles.css?v=5"><title>社媒运营中控平台</title></head><body>
-<div id="demoBanner" class="demo-banner" hidden>模拟演示 · 所有跳动数字仅为前端视觉演示</div>
-<header class="top"><div><p class="eyebrow">SOCIAL MEDIA OPERATIONS · L0—L3</p><h1>社媒运营中控平台</h1></div><div class="toolbar"><span id="asof">最近采集 —</span><button id="refresh">刷新</button><button id="lock" hidden>锁定</button></div></header>
-<main id="dashboard" hidden><section class="control"><div id="projects" class="pills"></div><div class="mode"><button id="liveMode" class="selected">实盘真数</button><button id="demoMode">模拟演示</button></div></section>
-<section id="matrix" class="matrix" hidden><div class="section-heading"><div><span class="layer">L1</span><h2>项目矩阵</h2></div><span>指标仅汇总已接入项目的可用数据</span></div><div id="projectCards" class="project-grid"></div></section>
-<section class="market"><div class="section-heading"><div><span class="layer">L2</span><h2>平台行情盘口</h2></div><span id="scope"></span></div><div id="platformGrid" class="market-grid"></div><div id="otherPlatforms" class="other-line"></div></section>
-<section class="strategy"><div class="section-heading"><div><span class="layer">L3</span><h2>策略建议</h2></div><span>基于最新采集数据自动诊断</span></div><div id="recommendations" class="recommendations"></div></section></main>
-<section id="unlock" class="unlock" hidden><form id="unlockForm"><div class="layer">受保护的数据快照</div><h2>输入口令解锁</h2><input id="passphrase" type="password" autocomplete="current-password" placeholder="请输入解锁口令" required><label><input id="remember" type="checkbox"> 本设备记住口令</label><p id="unlockError" role="alert"></p><button>解锁</button></form></section><div id="loading" class="loading">正在读取数据快照…</div>
-<script type="module" src="./app.js?v=5"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0B0E11">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="社媒运营中控平台">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/favicon.png?v=6" type="image/png">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png?v=6">
+  <link rel="stylesheet" href="./styles.css?v=6">
+  <title>社媒运营中控平台</title>
+</head>
+<body>
+  <header class="topbar">
+    <h1>社媒运营中控台</h1>
+    <div class="topbar-meta">
+      <span id="asof">最近采集 —</span>
+      <button id="refresh" class="icon-btn" type="button" title="刷新" aria-label="刷新">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 7.2A6.8 6.8 0 0 1 19 12h-2.1A4.7 4.7 0 0 0 8.7 8.7L10.8 11H5V5.2zM16.8 16.8A6.8 6.8 0 0 1 5 12h2.1a4.7 4.7 0 0 0 8.2 3.3L13.2 13H19v5.8z"/></svg>
+      </button>
+      <button id="lock" class="icon-btn" type="button" hidden title="锁定" aria-label="锁定">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10V8a4 4 0 1 1 8 0v2h1.5A1.5 1.5 0 0 1 19 11.5v8A1.5 1.5 0 0 1 17.5 21h-11A1.5 1.5 0 0 1 5 19.5v-8A1.5 1.5 0 0 1 6.5 10zm2 0h4V8a2 2 0 1 0-4 0z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="dashboard" hidden>
+    <nav id="projects" class="segments" aria-label="项目切换"></nav>
+    <section id="hero" class="hero" aria-label="核心汇总"></section>
+    <section id="matrix" class="block" hidden>
+      <div class="block-head">
+        <h2>项目总览</h2>
+        <span>仅汇总已接入项目的可用数据</span>
+      </div>
+      <div id="projectCards" class="project-stage"></div>
+    </section>
+    <section class="block">
+      <div class="block-head">
+        <h2>平台数据</h2>
+        <span id="scope"></span>
+      </div>
+      <div id="platformGrid" class="market-grid"></div>
+      <div id="otherPlatforms" class="other-line"></div>
+    </section>
+    <section class="block">
+      <div class="block-head">
+        <h2>策略建议</h2>
+        <span>基于最新采集数据自动诊断</span>
+      </div>
+      <div id="recommendations" class="recommendations"></div>
+    </section>
+  </main>
+
+  <section id="unlock" class="unlock" hidden>
+    <form id="unlockForm">
+      <p class="unlock-kicker">受保护的数据快照</p>
+      <h2>输入口令解锁</h2>
+      <input id="passphrase" type="password" autocomplete="current-password" placeholder="请输入解锁口令" required>
+      <label><input id="remember" type="checkbox"> 本设备记住口令</label>
+      <p id="unlockError" role="alert"></p>
+      <button type="submit">解锁</button>
+    </form>
+  </section>
+  <div id="loading" class="loading">正在读取数据快照…</div>
+  <script type="module" src="./app.js?v=6"></script>
+</body>
+</html>

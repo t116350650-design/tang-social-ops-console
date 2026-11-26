@@ -12,6 +12,18 @@ export function formatField(key, value) {
   if (RATIO_KEYS.includes(key)) return `${(Number(value) * 100).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}%`;
   return formatMetric(value);
 }
+export function formatSigned(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return DASH;
+  const n = Number(value);
+  const body = Math.abs(n).toLocaleString('zh-CN');
+  if (n > 0) return `+${body}`;
+  if (n < 0) return `-${body}`;
+  return '0';
+}
+export function ratioPercent(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return null;
+  return Math.max(0, Math.min(100, Number(value) * 100));
+}
 
 export function metricTotal(contents, keys) {
   let total = 0, found = false;
@@ -54,4 +66,36 @@ export function sparkline(snapshots, keys) {
   if (vals.length < 2) return null;
   const min = Math.min(...vals), max = Math.max(...vals), span = max - min || 1;
   return vals.map((value, index) => `${(index * 100 / (vals.length - 1)).toFixed(1)},${(28 - (value - min) * 24 / span).toFixed(1)}`).join(' ');
+}
+export function sparklinePaths(snapshots, keys) {
+  const line = sparkline(snapshots, keys);
+  if (!line) return null;
+  const pairs = line.split(' ');
+  const firstX = pairs[0].split(',')[0];
+  const lastX = pairs[pairs.length - 1].split(',')[0];
+  return { line, area: `${firstX},30 ${line} ${lastX},30` };
+}
+export function sortContentsByPlays(contents) {
+  return [...(contents ?? [])].sort((a, b) => {
+    const av = metricTotal([a], ['plays', 'views']);
+    const bv = metricTotal([b], ['plays', 'views']);
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return bv - av;
+  });
+}
+export function countPublished(contents) {
+  return (contents ?? []).filter(content => content.status === 'published').length;
+}
+export function countHealthyPlatforms(rows) {
+  const seen = new Set();
+  let count = 0;
+  for (const row of rows ?? []) {
+    const id = row.platform?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    if (row.platform.login?.state === 'green') count += 1;
+  }
+  return count;
 }
