@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   buildTrend, cardTrend, collectionFreshness, consecutiveCollectionDays, contentDailyTable,
-  contentEngagementRate, dayNet, metricTotal, normalizeIsoDate, presentWorkFields, yesterdayChange,
+  contentEngagementRate, countHealthyPlatforms, countPublished, dayNet, metricTotal, normalizeIsoDate,
+  presentWorkFields, projectHasCollectedData, yesterdayChange, collectPlatformRows,
 } from './format.js';
 import { selectRecommendations, TREND_MIN_DAYS } from './strategy.js';
 
@@ -223,6 +224,39 @@ test('总览按项目收，平台页不串到别的平台', () => {
   const pending = selectRecommendations({ data, projectId: 'huangjing-content', now: NOW });
   assert.equal(pending.notice, '该项目仍为待接入，没有可判断的日数据。');
   assert.deepEqual(pending.items, []);
+});
+
+test('没有作品也没有粉丝的占位项目不进入总览，也不计入健康平台和已上线', () => {
+  const empty = {
+    id: 'huangjing-content', title: '黄精内容号', status: 'pending',
+    accounts: [{ platforms: [{ id: 'xiaohongshu', login: { state: 'neutral' }, contents: [] }] }],
+  };
+  const namedOnly = {
+    id: 'x-personal-t116350650', title: 'X 个人号 @t116350650', status: 'pending',
+    accounts: [{ platforms: [{ id: 'x', contents: [] }] }],
+  };
+  const live = {
+    id: 'shangye-chenfu-lu', title: '商业沉浮录', status: 'running',
+    accounts: [{ platforms: [
+      { id: 'douyin', login: { state: 'green' }, contents: [{ title: '已上线', status: 'published', metrics: { plays: 12 } }] },
+      { id: 'bilibili', login: { state: 'green' }, contents: [] },
+    ] }],
+  };
+  assert.equal(projectHasCollectedData(empty), false);
+  assert.equal(projectHasCollectedData(namedOnly), false);
+  assert.equal(projectHasCollectedData(live), true);
+  const rows = collectPlatformRows({ projects: [empty, namedOnly, live].filter(projectHasCollectedData) });
+  assert.equal(countPublished(rows.flatMap(row => row.contents)), 1);
+  assert.equal(countHealthyPlatforms(rows), 2);
+  assert.equal(new Set(rows.map(row => row.project.id)).has('huangjing-content'), false);
+  assert.equal(new Set(rows.map(row => row.project.id)).has('x-personal-t116350650'), false);
+});
+
+test('源码不再把未接入项目写进切换和总览', () => {
+  const app = readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+  assert.equal(app.includes('PENDING_PROJECTS'), false);
+  assert.equal(app.includes('X 个人号'), false);
+  assert.equal(app.includes('黄精内容号'), false);
 });
 
 test('源码不再写死某一集，界面路径不再渲染规则编号', () => {

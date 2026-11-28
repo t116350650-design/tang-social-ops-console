@@ -3,7 +3,7 @@ import {
   CORE_PLATFORMS, DASH, buildOpsHash, buildTrend, cardTrend, collectPlatformRows,
   collectionFreshness, contentDailyTable, countHealthyPlatforms, countPublished,
   engagementTotal, formatDateTime, formatField, formatMetric, formatSigned, latestAsOf,
-  metricTotal, parseOpsRoute, platformFollowers, portfolioEngagementRate, presentWorkFields,
+  metricTotal, parseOpsRoute, platformFollowers, portfolioEngagementRate, presentWorkFields, projectHasCollectedData,
   ratioPercent, shortDate, sortContentsBy, summarizeRows, yesterdayChange, yesterdayFollowers,
 } from './format.js';
 import { selectRecommendations } from './strategy.js';
@@ -22,13 +22,7 @@ const state = {
 };
 const PROJECT_ALIASES = {
   'shangye-chenfu-lu': '商业沉浮录',
-  'x-personal-t116350650': 'X 个人号 @t116350650',
-  'huangjing-content': '黄精内容号',
 };
-const PENDING_PROJECTS = [
-  ['x-personal-t116350650', 'X 个人号 @t116350650'],
-  ['huangjing-content', '黄精内容号'],
-];
 const STATUS_LABELS = {
   published: '已发布', public: '已发布', draft: '草稿', reviewing: '审核中',
   scheduled: '定时发布', pending: '待发布', deleted: '已删除', private: '仅自己可见',
@@ -154,8 +148,16 @@ function showDashboard() {
   applyRoute(parseOpsRoute(location.hash), { scroll: state.view === 'platform' || Boolean(parseOpsRoute(location.hash).platform) });
 }
 
+function liveProjects() {
+  return (state.data?.projects ?? []).filter(projectHasCollectedData);
+}
+function projectMatches(project, id) {
+  return project.id === id || project.title === id;
+}
 function projectsForView() {
-  return (state.data?.projects ?? []).filter(project => state.project === 'all' || project.id === state.project || project.title === state.project);
+  const projects = liveProjects();
+  if (state.project === 'all') return projects;
+  return projects.filter(project => projectMatches(project, state.project));
 }
 function rowsForView() { return collectPlatformRows({ projects: projectsForView() }); }
 function rowsForPlatform(platformId) {
@@ -163,13 +165,8 @@ function rowsForPlatform(platformId) {
 }
 
 function renderProjects() {
-  const seen = new Set();
   const entries = [['all', '全部项目']];
-  for (const project of state.data?.projects ?? []) {
-    seen.add(project.id);
-    entries.push([project.id, PROJECT_ALIASES[project.id] || project.title || project.id]);
-  }
-  for (const [id, title] of PENDING_PROJECTS) if (!seen.has(id)) entries.push([id, title]);
+  for (const project of liveProjects()) entries.push([project.id, PROJECT_ALIASES[project.id] || project.title || project.id]);
   $('#projects').innerHTML = entries.map(([id, title]) => `<button type="button" data-project="${escapeHtml(id)}" class="${state.project === id ? 'selected' : ''}">${escapeHtml(title)}</button>`).join('');
   $('#projects').querySelectorAll('button').forEach(button => {
     button.onclick = () => navigate({ view: 'overview', project: button.dataset.project });
@@ -197,18 +194,15 @@ function renderHero() {
 }
 
 function projectMatrix() {
-  const projects = state.data?.projects ?? [];
-  const known = new Set(projects.map(project => project.id));
-  const featured = projects.map(project => {
+  const featured = liveProjects().map(project => {
     const rows = collectPlatformRows({ projects: [project] });
     const contents = rows.flatMap(row => row.contents);
     const summary = summarizeRows(rows);
     const published = countPublished(contents);
     const playChange = yesterdayChange(contents, ['plays', 'views']);
     const deltaText = playChange.status === 'missing' ? '昨日未采到' : (playChange.value === null ? DASH : formatSigned(playChange.value));
-    const connected = project.status === 'running' || contents.length;
     return `<article class="featured" data-project="${escapeHtml(project.id)}" role="button" tabindex="0">
-      <div class="status">${connected ? '已接入' : '待接入'}</div>
+      <div class="status">已接入</div>
       <h3>${escapeHtml(PROJECT_ALIASES[project.id] || project.title || project.id)}</h3>
       <div class="num${tickClass(`proj-${project.id}`, summary.plays)}">${formatMetric(summary.plays)}</div>
       <div class="meta">
@@ -218,12 +212,7 @@ function projectMatrix() {
       </div>
     </article>`;
   }).join('');
-  const pending = PENDING_PROJECTS.filter(([id]) => !known.has(id)).map(([, title]) =>
-    `<div class="pending-chip"><span class="dot"></span><b>${escapeHtml(title)}</b><span>待接入</span></div>`
-  ).join('');
-  $('#projectCards').innerHTML = (featured || pending)
-    ? `${featured || ''}${pending ? `<div class="pending-row">${pending}</div>` : ''}`
-    : '<div class="empty">暂无项目数据</div>';
+  $('#projectCards').innerHTML = featured || '<div class="empty">暂无项目数据</div>';
   $('#projectCards').querySelectorAll('[data-project]').forEach(card => {
     const open = () => navigate({ view: 'overview', project: card.dataset.project });
     card.onclick = open;
@@ -330,7 +319,7 @@ function showRecommendations(noteId, listId, result) {
 }
 function renderRecommendations() {
   showRecommendations('#recommendationNote', '#recommendations', selectRecommendations({
-    data: state.data, projectId: state.project, limit: 3,
+    data: { ...state.data, projects: projectsForView() }, projectId: state.project, limit: 3,
   }));
 }
 
@@ -472,12 +461,16 @@ function renderPlatformView() {
     </article>`;
   }).join('') : '<div class="empty">暂无作品明细</div>';
 
-  const advice = selectRecommendations({ data: state.data, projectId: state.project, platformId: id, limit: 4 });
+  const advice = selectRecommendations({ data: { ...state.data, projects: projectsForView() }, projectId: state.project, platformId: id, limit: 4 });
   $('#platformStrategy').hidden = !advice.notice && advice.items.length === 0;
   showRecommendations('#platformSample', '#platformRecommendations', advice);
 }
 
 function render() {
+  if (state.project !== 'all' && !liveProjects().some(project => projectMatches(project, state.project))) {
+    navigate({ view: 'overview', project: 'all' }, { replace: true });
+    return;
+  }
   const onPlatform = state.view === 'platform' && state.platform;
   $('#overview').hidden = Boolean(onPlatform);
   $('#platformView').hidden = !onPlatform;
@@ -488,7 +481,7 @@ function render() {
     renderFreshness(rowsForPlatform(state.platform), false);
     return;
   }
-  $('#asof').textContent = `最近采集 ${latestAsOf(state.data)}`;
+  $('#asof').textContent = `最近采集 ${latestAsOf({ ...state.data, projects: projectsForView() })}`;
   renderProjects();
   renderHero();
   $('#matrix').hidden = state.project !== 'all';
