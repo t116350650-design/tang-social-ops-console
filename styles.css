@@ -1,4 +1,4 @@
-/* 社媒运营中控台 v7 */
+/* 社媒运营中控台 v8 */
 :root{
   color-scheme:dark;
   --bg:#0B0E11;
@@ -27,7 +27,7 @@ button:hover{border-color:#4c9d81}
 
 .topbar{
   position:sticky;top:0;z-index:8;
-  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;
   min-height:48px;
   padding:calc(6px + env(safe-area-inset-top)) var(--safe-r) 6px var(--safe-x);
   background:rgba(11,14,17,.92);
@@ -84,6 +84,21 @@ button:hover{border-color:#4c9d81}
 }
 .hero-card .lab{font-size:11px;color:var(--muted);margin-bottom:6px}
 .hero-card .num{font:700 26px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:-.04em}
+.num.up,.kpi-num.up{color:var(--green)}
+.num.down,.kpi-num.down{color:var(--red)}
+.num.missing-num{font-size:16px;letter-spacing:0;color:var(--amber);line-height:1.25}
+.num.tick{animation:num-tick .42s ease}
+@keyframes num-tick{0%{transform:translateY(8px);opacity:.2}55%{transform:translateY(-2px);opacity:1}100%{transform:none}}
+.delta-line{margin-top:4px}
+.delta-line .k{display:block;color:var(--muted);font-size:11px;font-weight:650}
+.delta-line .v{font:700 16px/1.15 ui-monospace,SFMono-Regular,Menlo,monospace}
+.delta-line.up .v{color:var(--green)}
+.delta-line.down .v{color:var(--red)}
+.delta-line.missing .v{color:var(--amber);font-size:13px}
+.stale{
+  flex:1 0 100%;margin:2px 0 0;padding:7px 10px;border-radius:10px;
+  background:#3a2e14;color:var(--amber);font-size:13px;font-weight:700;border:1px solid #6a5420;
+}
 .badge{
   display:inline-flex;align-items:center;margin-top:7px;
   border-radius:99px;padding:2px 8px;font:700 12px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -139,7 +154,8 @@ button:hover{border-color:#4c9d81}
 .metric-label{font-size:11px;color:var(--muted)}
 .quote .num{font:700 22px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:-.04em}
 .spark{width:100%;height:36px;margin-top:2px;display:block}
-.spark-empty{color:var(--muted);font-size:12px;min-height:36px;display:flex;align-items:flex-end}
+.spark-empty{color:var(--amber);font-size:12px;min-height:36px;display:flex;align-items:flex-end}
+.spark-meta{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
 .quote-foot{margin-top:auto;padding-top:4px;color:#9be0c2;font-size:12px;display:flex;justify-content:space-between}
 
 .trend-card{
@@ -148,6 +164,15 @@ button:hover{border-color:#4c9d81}
 }
 .trend-svg{width:100%;height:160px;display:block}
 .trend-empty{color:var(--muted);padding:28px 4px;text-align:center}
+.trend-caption{margin-top:8px;color:var(--muted);font-size:12px}
+.trend-legend{display:flex;gap:8px;overflow:auto;padding-top:8px;scrollbar-width:none}
+.trend-legend::-webkit-scrollbar{display:none}
+.trend-legend div{flex:0 0 auto;min-width:54px;text-align:center}
+.trend-legend b{display:block;font-size:10px;color:var(--muted);font-weight:600}
+.trend-legend span{font:700 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace}
+.trend-legend .up{color:var(--green)}
+.trend-legend .down{color:var(--red)}
+.trend-legend .flat{color:var(--muted)}
 
 .work-list{display:grid;gap:8px}
 .work{
@@ -170,6 +195,15 @@ button:hover{border-color:#4c9d81}
 .kpi-cell .kpi-lab{margin-top:3px;font-size:10px;color:var(--muted)}
 .bar{height:3px;border-radius:99px;background:#243039;margin-top:6px;overflow:hidden}
 .bar>i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#1d6b52,var(--green));box-shadow:0 0 8px #35d49a88}
+.day-block{margin-top:10px}
+.day-label{font-size:11px;color:var(--muted);margin-bottom:4px}
+.day-scroll{overflow:auto}
+.day-table{width:100%;border-collapse:collapse;font-size:12px}
+.day-table th,.day-table td{padding:5px 6px;border-bottom:1px solid #1c252c;white-space:nowrap}
+.day-table th{color:var(--muted);font-weight:600;text-align:right}
+.day-table td{text-align:right;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.day-table th:first-child,.day-table td:first-child{text-align:left}
+.work h3.missing,.missing{color:var(--amber)}
 
 .other-line{padding:12px 2px 0;color:var(--muted);font-size:12px}
 
@@ -185,7 +219,8 @@ button:hover{border-color:#4c9d81}
 .rail.low,.rail.p2,.rail.p3,.rail.中,.rail.低{background:#4c9d81}
 .action h3{margin:0 0 4px;font-size:14px;padding-right:48px}
 .action p{margin:0;color:#aab4bc;font-size:13px}
-.action .rule{position:absolute;top:10px;right:12px;color:#5b6a74;font-size:10px}
+.action .kind{position:absolute;top:10px;right:12px;color:#8c9aa6;font-size:11px}
+.sample-note{margin:0 0 8px;padding:10px 12px;border:1px dashed #6a5420;border-radius:12px;background:#241c10;color:var(--amber);font-size:13px;line-height:1.45}
 
 .unlock{position:fixed;inset:0;z-index:5;display:grid;place-items:center;background:#0b0e11f5}
 .unlock form{width:min(390px,calc(100% - 32px));padding:28px;border:1px solid var(--line);border-radius:18px;background:var(--panel)}
@@ -216,6 +251,7 @@ button:hover{border-color:#4c9d81}
   .trend-svg{height:128px}
   .back-btn{padding-right:4px}
 }
+@media (prefers-reduced-motion: reduce){.num.tick{animation:none}}
 @media(max-width:420px){
   .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .hero-card{padding:11px 12px}

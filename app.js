@@ -1,11 +1,12 @@
 import { decryptPwaEnvelope } from './crypto.js';
 import {
-  CORE_PLATFORMS, DASH, aggregateDailySeries, buildOpsHash, collectPlatformRows,
-  countHealthyPlatforms, countPublished, engagementTotal, formatDateTime, formatField,
-  formatMetric, formatSigned, latestAsOf, metricDelta, metricTotal, metricWindowChange,
-  parseOpsRoute, platformFollowers, ratioPercent, recommendationsForPlatform,
-  sortContentsBy, sparklineFromSeries, sparklinePaths, summarizeRows,
+  CORE_PLATFORMS, DASH, buildOpsHash, buildTrend, cardTrend, collectPlatformRows,
+  collectionFreshness, contentDailyTable, countHealthyPlatforms, countPublished,
+  engagementTotal, formatDateTime, formatField, formatMetric, formatSigned, latestAsOf,
+  metricTotal, parseOpsRoute, platformFollowers, portfolioEngagementRate, presentWorkFields,
+  ratioPercent, shortDate, sortContentsBy, summarizeRows, yesterdayChange, yesterdayFollowers,
 } from './format.js';
+import { selectRecommendations } from './strategy.js';
 
 const $ = selector => document.querySelector(selector);
 const state = {
@@ -14,7 +15,7 @@ const state = {
   project: 'all',
   view: 'overview',
   platform: null,
-  trendDays: 7,
+  trendDays: 'daily',
   workSort: 'plays',
   remembered: false,
   enteredFromOverview: false,
@@ -36,18 +37,7 @@ const STATUS_LABELS = {
   not_scheduled: '未排期', takedown: '已下架', unknown: '未知',
 };
 const LAMP_LABELS = { green: '正常', yellow: '待复核', red: '需登录', neutral: '未检测' };
-const PRIORITY_LABELS = { high: '高', medium: '中', low: '低', P0: '紧急', P1: '高', P2: '中', P3: '低' };
-const WORK_KPIS = [
-  { id: 'plays', keys: ['plays', 'views'], label: '播放' },
-  { id: 'delta', delta: ['plays', 'views'], label: '较昨日' },
-  { id: 'reads', keys: ['reads'], label: '阅读' },
-  { id: 'likes', keys: ['likes'], label: '点赞' },
-  { id: 'comments', keys: ['comments'], label: '评论' },
-  { id: 'shares', keys: ['shares'], label: '分享' },
-  { id: 'collects', keys: ['collects'], label: '收藏' },
-  { id: 'completionRate', keys: ['completionRate'], label: '完播率', ratio: true },
-  { id: 'ctr', keys: ['ctr'], label: '点击率', ratio: true },
-];
+const seenTicks = new Set();
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -57,13 +47,39 @@ function safeText(value) {
 }
 function trStatus(value) { return STATUS_LABELS[value] || safeText(value); }
 function trLamp(value) { return LAMP_LABELS[value] || safeText(value); }
-function trPriority(value) { return PRIORITY_LABELS[value] || safeText(value); }
 function lampClass(value) { return ['green', 'yellow', 'red'].includes(value) ? value : ''; }
-function badgeHtml(value) {
-  if (value === null || value === undefined || !Number.isFinite(Number(value))) return `<span class="badge flat">${DASH}</span>`;
-  const n = Number(value);
+function tickClass(key, value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '';
+  const token = `${state.view}|${state.project}|${state.platform}|${key}|${value}`;
+  if (seenTicks.has(token)) return '';
+  seenTicks.add(token);
+  return ' tick';
+}
+function numHtml(key, value, { signed = false } = {}) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return `<div class="num">${DASH}</div>`;
+  const tone = signed ? (value > 0 ? ' up' : value < 0 ? ' down' : '') : '';
+  return `<div class="num${tone}${tickClass(key, value)}">${signed ? formatSigned(value) : formatMetric(value)}</div>`;
+}
+function deltaLine(change) {
+  if (!change || change.status === 'missing') return '<div class="delta-line missing"><span class="k">较上一日</span><span class="v">昨日未采到</span></div>';
+  if (change.value === null || !Number.isFinite(Number(change.value))) return `<div class="delta-line flat"><span class="k">较上一日</span><span class="v">${DASH}</span></div>`;
+  const n = Number(change.value);
   const cls = n > 0 ? 'up' : n < 0 ? 'down' : 'flat';
-  return `<span class="badge ${cls}">${formatSigned(n)}</span>`;
+  return `<div class="delta-line ${cls}"><span class="k">较上一日</span><span class="v">${formatSigned(n)}</span></div>`;
+}
+function deltaHero(label, change, key) {
+  if (!change || change.status === 'missing') return `<article class="hero-card"><div class="lab">${label}</div><div class="num missing-num">昨日未采到</div></article>`;
+  const body = change.value === null ? `<div class="num">${DASH}</div>` : numHtml(key, change.value, { signed: true });
+  return `<article class="hero-card"><div class="lab">${label}</div>${body}</article>`;
+}
+function collectedTitle(content) {
+  const title = content?.title == null ? '' : String(content.title).trim();
+  return !title || title === DASH || title === '-' ? '未采集到' : title;
+}
+function collectedTime(value) {
+  if (value === null || value === undefined || value === '') return '未采集到';
+  const text = formatDateTime(value);
+  return text === DASH ? '未采集到' : text;
 }
 function platformLabel(id) {
   return Object.fromEntries(CORE_PLATFORMS)[id] || id;
@@ -162,18 +178,22 @@ function renderProjects() {
 
 function renderHero() {
   const rows = rowsForView();
+  const contents = rows.flatMap(row => row.contents);
   const summary = summarizeRows(rows);
-  const published = countPublished(rows.flatMap(row => row.contents));
+  const published = countPublished(contents);
   const healthy = countHealthyPlatforms(rows);
   const totalPlatforms = new Set(rows.map(row => row.platform?.id).filter(Boolean)).size;
-  const items = [
-    ['总播放 / 观看', formatMetric(summary.plays), ''],
-    ['较昨日净增', formatSigned(summary.playsDelta), badgeHtml(summary.playsDelta)],
-    ['总阅读', formatMetric(summary.reads), badgeHtml(summary.readsDelta)],
-    ['已上线作品', formatMetric(published), ''],
-    ['健康平台', totalPlatforms ? `${healthy} / ${totalPlatforms}` : DASH, ''],
+  const playChange = yesterdayChange(contents, ['plays', 'views']);
+  const readChange = yesterdayChange(contents, ['reads']);
+  const readDelta = summary.reads === null ? '' : deltaLine(readChange);
+  const cards = [
+    `<article class="hero-card"><div class="lab">总播放 / 观看</div>${numHtml('hero-plays', summary.plays)}</article>`,
+    deltaHero('播放较上一日', playChange, 'hero-play-delta'),
+    `<article class="hero-card"><div class="lab">总阅读</div>${numHtml('hero-reads', summary.reads)}${readDelta}</article>`,
+    `<article class="hero-card"><div class="lab">已上线作品</div>${numHtml('hero-published', published)}</article>`,
+    `<article class="hero-card"><div class="lab">健康平台</div><div class="num${tickClass('hero-healthy', totalPlatforms ? healthy : null)}">${totalPlatforms ? `${healthy} / ${totalPlatforms}` : DASH}</div></article>`,
   ];
-  $('#hero').innerHTML = items.map(([lab, num, extra]) => `<article class="hero-card"><div class="lab">${lab}</div><div class="num">${num}</div>${extra}</article>`).join('');
+  $('#hero').innerHTML = cards.join('');
 }
 
 function projectMatrix() {
@@ -181,15 +201,18 @@ function projectMatrix() {
   const known = new Set(projects.map(project => project.id));
   const featured = projects.map(project => {
     const rows = collectPlatformRows({ projects: [project] });
+    const contents = rows.flatMap(row => row.contents);
     const summary = summarizeRows(rows);
-    const published = countPublished(rows.flatMap(row => row.contents));
-    const connected = project.status === 'running' || rows.some(row => (row.contents ?? []).length);
+    const published = countPublished(contents);
+    const playChange = yesterdayChange(contents, ['plays', 'views']);
+    const deltaText = playChange.status === 'missing' ? '昨日未采到' : (playChange.value === null ? DASH : formatSigned(playChange.value));
+    const connected = project.status === 'running' || contents.length;
     return `<article class="featured" data-project="${escapeHtml(project.id)}" role="button" tabindex="0">
       <div class="status">${connected ? '已接入' : '待接入'}</div>
       <h3>${escapeHtml(PROJECT_ALIASES[project.id] || project.title || project.id)}</h3>
-      <div class="num">${formatMetric(summary.plays)}</div>
+      <div class="num${tickClass(`proj-${project.id}`, summary.plays)}">${formatMetric(summary.plays)}</div>
       <div class="meta">
-        <span>较昨日 ${badgeHtml(summary.playsDelta)}</span>
+        <span>较上一日 ${escapeHtml(deltaText)}</span>
         <span>阅读 ${formatMetric(summary.reads)}</span>
         <span>已上线 ${formatMetric(published)}</span>
       </div>
@@ -208,17 +231,24 @@ function projectMatrix() {
   });
 }
 
-function sparkSvg(id, history, { wide = false, days = 7 } = {}) {
-  const series = wide ? null : sparklinePaths(history, ['plays', 'views', 'reads']);
-  const paths = wide ? sparklineFromSeries(history, { width: 100, height: 40, pad: 3 }) : series;
-  if (!paths) return `<div class="${wide ? 'trend-empty' : 'spark-empty'}">${wide ? `近${days}日有效趋势点不足，暂不绘制` : '7日趋势 —'}</div>`;
-  const gid = `sparkFill-${id}`;
+function sparkSvg(id, paths, { wide = false, stroke = '#35d49a' } = {}) {
+  if (!paths) return '';
+  const gid = `sparkFill-${String(id).replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const height = wide ? 40 : 30;
   return `<svg class="${wide ? 'trend-svg' : 'spark'}" viewBox="0 0 100 ${height}" preserveAspectRatio="none" aria-hidden="true">
-    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#35d49a" stop-opacity="0.38"/><stop offset="100%" stop-color="#35d49a" stop-opacity="0"/></linearGradient></defs>
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${stroke}" stop-opacity="0.38"/><stop offset="100%" stop-color="${stroke}" stop-opacity="0"/></linearGradient></defs>
     <polygon points="${paths.area}" fill="url(#${gid})"></polygon>
-    <polyline points="${paths.line}" fill="none" stroke="#35d49a" stroke-width="${wide ? 1.4 : 1.7}" stroke-linejoin="round" stroke-linecap="round"></polyline>
+    <polyline points="${paths.line}" fill="none" stroke="${stroke}" stroke-width="${wide ? 1.4 : 1.7}" stroke-linejoin="round" stroke-linecap="round"></polyline>
   </svg>`;
+}
+function cardSpark(id, contents, keys) {
+  const trend = cardTrend(contents, keys);
+  if (!trend || trend.status !== 'ok') return '<div class="spark-empty">昨日未采到</div>';
+  const stroke = trend.yesterdayNet < 0 ? '#ff6577' : '#35d49a';
+  const start = shortDate(trend.start);
+  const end = shortDate(trend.end);
+  const range = start && start !== end ? `${start} → ${end}` : (start || end);
+  return `${sparkSvg(id, trend.paths, { stroke })}<div class="spark-meta">${range}</div>`;
 }
 
 function platformStatus(matches) {
@@ -227,7 +257,7 @@ function platformStatus(matches) {
   if (!matches.length) return { lamp: 'neutral', text: '待接入', connected: false };
   if (lamp === 'red') return { lamp, text: '需登录', connected: true };
   if (lamp === 'yellow') return { lamp, text: '待补采', connected: true };
-  if (lamp === 'green') return { lamp, text: '已接入', connected: true };
+  if (lamp === 'green') return { lamp, text: matches.some(row => (row.contents ?? []).length) ? '已接入' : '缺位', connected: true };
   return { lamp, text: matches.some(row => (row.contents ?? []).length) ? '已接入' : '待接入', connected: Boolean(matches.length) };
 }
 
@@ -239,23 +269,28 @@ function renderMarket() {
     const matches = rows.filter(row => row.platform.id === id);
     const contents = matches.flatMap(row => row.contents);
     const source = matches[0]?.platform;
-    const plays = metricTotal(contents, ['plays', 'views']);
+    const primaryKeys = id === 'wechat_mp' ? ['reads'] : ['plays', 'views'];
+    const primary = metricTotal(contents, primaryKeys);
+    const primaryChange = yesterdayChange(contents, primaryKeys);
     const engagement = engagementTotal(contents);
-    const playsDelta = metricWindowChange(contents, ['plays', 'views'], 7);
     const followers = platformFollowers(source);
-    const followerDelta = metricWindowChange(contents, ['followersGained'], 7);
-    const history = contents.flatMap(content => content.daily_snapshots ?? []);
+    const followerChange = yesterdayFollowers(source, contents);
     const status = platformStatus(matches);
+    const primaryLabel = id === 'wechat_mp' ? '阅读' : '播放';
+    const connected = matches.length > 0;
+    const fanDelta = connected ? deltaLine(followerChange) : '';
+    const volumeDelta = connected ? deltaLine(primaryChange) : '';
+    const spark = connected ? cardSpark(id, contents, primaryKeys) : '<div class="spark-empty"></div>';
     return `<article class="quote" data-platform="${id}" role="button" tabindex="0">
       <div class="quote-head">
         <h3>${label}</h3>
         <div class="quote-status"><span class="lamp ${lampClass(status.lamp)}"></span><span class="capsule ${lampClass(status.lamp)}">${status.text}</span></div>
       </div>
       <div class="quote-metrics">
-        <div><div class="metric-label">粉丝</div><div class="num">${formatMetric(followers)}</div>${badgeHtml(followerDelta)}</div>
-        <div><div class="metric-label">播放 / 互动</div><div class="num">${formatMetric(plays)}</div><span class="metric-label">互动 ${formatMetric(engagement)} · 近7日 ${formatSigned(playsDelta)}</span></div>
+        <div><div class="metric-label">粉丝</div>${numHtml(`fans-${id}`, followers)}${fanDelta}</div>
+        <div><div class="metric-label">${primaryLabel}</div>${numHtml(`vol-${id}`, primary)}${volumeDelta}<div class="metric-label">互动 ${formatMetric(engagement)}</div></div>
       </div>
-      ${sparkSvg(id, history)}
+      ${spark}
       <div class="quote-foot"><span>进入详情</span><span>→</span></div>
     </article>`;
   }).join('');
@@ -274,34 +309,86 @@ function renderMarket() {
     : '小红书 / X：待接入';
 }
 
-function renderRecommendations() {
-  const items = state.data?.recommendations ?? [];
-  $('#recommendations').innerHTML = items.length ? items.map(actionHtml).join('') : '<div class="empty">暂无策略建议</div>';
-}
-
 function actionHtml(item) {
-  const priority = trPriority(item.priority);
-  const cls = String(item.priority || priority).toLowerCase();
-  const rules = Array.isArray(item.ruleIds) ? item.ruleIds.join(' · ') : (item.ruleIds || '');
+  const cls = String(item.priority || '').toLowerCase();
   return `<article class="action">
     <span class="rail ${escapeHtml(cls)}"></span>
     <div>
-      <h3>${escapeHtml(safeText(item.title))}</h3>
-      <p>${escapeHtml(safeText(item.detail))}</p>
-      ${rules ? `<small class="rule">${escapeHtml(rules)}</small>` : ''}
+      <h3>${escapeHtml(item.title || '')}</h3>
+      <p>${escapeHtml(item.detail || '')}</p>
+      ${item.kindLabel ? `<small class="kind">${escapeHtml(item.kindLabel)}</small>` : ''}
     </div>
   </article>`;
+}
+function showRecommendations(noteId, listId, result) {
+  const note = $(noteId);
+  note.hidden = !result.notice;
+  note.textContent = result.notice || '';
+  $(listId).innerHTML = result.items.length
+    ? result.items.map(actionHtml).join('')
+    : (result.notice ? '' : '<div class="empty">暂无策略建议</div>');
+}
+function renderRecommendations() {
+  showRecommendations('#recommendationNote', '#recommendations', selectRecommendations({
+    data: state.data, projectId: state.project, limit: 3,
+  }));
 }
 
 function renderWorkKpis(content) {
   const cells = [];
-  for (const item of WORK_KPIS) {
-    const value = item.delta ? metricDelta([content], item.delta) : metricTotal([content], item.keys);
-    const display = item.delta ? formatSigned(value) : formatField(item.keys?.[0] || item.id, value);
-    const bar = item.ratio ? ratioPercent(value) : null;
-    cells.push(`<div class="kpi-cell"><div class="kpi-num">${display}</div><div class="kpi-lab">${item.label}</div>${bar === null ? '' : `<div class="bar"><i style="width:${bar.toFixed(1)}%"></i></div>`}</div>`);
+  const change = yesterdayChange([content], ['plays', 'views', 'reads']);
+  if (change.status === 'ok' && change.value !== null) {
+    const cls = change.value > 0 ? 'up' : change.value < 0 ? 'down' : '';
+    cells.push(`<div class="kpi-cell"><div class="kpi-num ${cls}">${formatSigned(change.value)}</div><div class="kpi-lab">较上一日</div></div>`);
   }
-  return `<div class="kpi-grid">${cells.join('')}</div>`;
+  for (const field of presentWorkFields(content)) {
+    const display = field.ratio ? formatField(field.id, field.value) : formatMetric(field.value);
+    const bar = field.ratio ? ratioPercent(field.value) : null;
+    cells.push(`<div class="kpi-cell"><div class="kpi-num">${display}</div><div class="kpi-lab">${field.label}</div>${bar === null ? '' : `<div class="bar"><i style="width:${bar.toFixed(1)}%"></i></div>`}</div>`);
+  }
+  return cells.length ? `<div class="kpi-grid">${cells.join('')}</div>` : '<div class="empty">指标未采集到</div>';
+}
+function renderDaily(content) {
+  const table = contentDailyTable(content);
+  if (!table) return '';
+  const head = `<tr><th>日期</th>${table.columns.map(column => `<th>${column.label}</th>`).join('')}</tr>`;
+  const body = table.rows.map(row => {
+    const cells = table.columns.map(column => {
+      const value = row[column.id];
+      if (value === null) return '<td>未采集到</td>';
+      if (column.id === 'fans') return `<td>${formatSigned(value)}</td>`;
+      return `<td>${column.ratio ? formatField(column.id, value) : formatMetric(value)}</td>`;
+    }).join('');
+    return `<tr><td>${row.date}</td>${cells}</tr>`;
+  }).join('');
+  return `<div class="day-block"><div class="day-label">每日明细</div><div class="day-scroll"><table class="day-table"><thead>${head}</thead><tbody>${body}</tbody></table></div></div>`;
+}
+function renderTrend(contents, platformId) {
+  const keys = platformId === 'wechat_mp' ? ['reads', 'plays', 'views'] : ['plays', 'views', 'reads'];
+  const trend = buildTrend(contents, keys, state.trendDays);
+  if (!trend) {
+    $('#platformTrend').innerHTML = `<div class="trend-empty">${state.trendDays === 'daily' ? '还没有按日快照' : '这个区间没有按日快照'}</div>`;
+    return;
+  }
+  const hasNet = trend.nets.some(value => value !== null);
+  const lastNet = [...trend.nets].reverse().find(value => value !== null);
+  const stroke = lastNet < 0 ? '#ff6577' : '#35d49a';
+  const svg = trend.paths
+    ? sparkSvg(`trend-${platformId}-${state.trendDays}`, trend.paths, { wide: true, stroke })
+    : `<div class="trend-empty">${hasNet ? '只有一个采集日，下面标出当日净增' : '只有一个采集日，当日净增未采集'}</div>`;
+  const legend = trend.dates.map((date, index) => {
+    const net = trend.nets[index];
+    const level = trend.levels[index];
+    let text = '未采集到';
+    let cls = 'flat';
+    if (net !== null) { text = formatSigned(net); cls = net > 0 ? 'up' : net < 0 ? 'down' : 'flat'; }
+    else if (level !== null) text = `读数 ${formatMetric(level)}`;
+    return `<div><b>${shortDate(date)}</b><span class="${cls}">${text}</span></div>`;
+  }).join('');
+  const caption = hasNet
+    ? `${trend.dates[0]} → ${trend.dates.at(-1)} · 当日净增`
+    : `${trend.dates[0]} → ${trend.dates.at(-1)} · 当日净增未采集，折线为累计读数`;
+  $('#platformTrend').innerHTML = `${svg}<div class="trend-caption">${caption}</div><div class="trend-legend">${legend}</div>`;
 }
 
 function renderPlatformView() {
@@ -325,39 +412,35 @@ function renderPlatformView() {
     button.onclick = () => navigate({ view: 'platform', project: state.project, platform: button.dataset.platform }, { replace: true });
   });
 
-  const plays = metricTotal(contents, ['plays', 'views']);
-  const reads = metricTotal(contents, ['reads']);
-  const playChange = metricWindowChange(contents, ['plays', 'views'], 7);
-  const readChange = metricWindowChange(contents, ['reads'], 7);
+  const primaryKeys = id === 'wechat_mp' ? ['reads'] : ['plays', 'views'];
+  const primaryValue = metricTotal(contents, primaryKeys);
+  const primaryChange = yesterdayChange(contents, primaryKeys);
   const engagement = engagementTotal(contents);
+  const rate = portfolioEngagementRate(contents, primaryKeys);
   const followers = platformFollowers(source);
-  const followerDelta = metricWindowChange(contents, ['followersGained'], 7);
+  const followerChange = yesterdayFollowers(source, contents);
   const published = countPublished(contents);
-  const primaryLabel = id === 'wechat_mp' ? '累计阅读' : '累计播放';
-  const primaryValue = id === 'wechat_mp' ? reads : plays;
-  const primaryDelta = id === 'wechat_mp' ? readChange : playChange;
-  const hero = [
-    ['粉丝数', formatMetric(followers), badgeHtml(followerDelta)],
-    [primaryLabel, formatMetric(primaryValue), `<span class="metric-label">近7日 ${formatSigned(primaryDelta)}</span>${badgeHtml(primaryDelta)}`],
-    ['点赞 / 互动', formatMetric(engagement), ''],
-    ['作品数', formatMetric(published || contents.length ? (published || contents.length) : null), ''],
-  ];
-  // Wait: "作品数" should not convert missing to 0, but contents.length is a real count (can be 0 if platform connected with empty list).
-  // If platform has no snapshot/not connected, works should be —. If connected with 0 contents, 0 is honest.
-  // published || contents.length would show 0 as 0 when empty array on connected platform - OK.
-  // If not connected, matches.length is 0, contents=[], published=0, contents.length=0 → formatMetric(null) if we pass null when !matches.length
   const workCount = matches.length ? (published || contents.length) : null;
-  hero[3] = ['作品数', formatMetric(workCount), ''];
-  $('#platformHero').innerHTML = hero.map(([lab, num, extra]) => `<article class="hero-card"><div class="lab">${lab}</div><div class="num">${num}</div>${extra}</article>`).join('');
+  const primaryLabel = id === 'wechat_mp' ? '累计阅读' : '累计播放';
+  const rateLine = rate === null ? '' : `<div class="metric-label">互动率 ${formatField('engagementRate', rate)}</div>`;
+  $('#platformHero').innerHTML = [
+    `<article class="hero-card"><div class="lab">粉丝数</div>${numHtml(`p-fans-${id}`, followers)}${deltaLine(followerChange)}</article>`,
+    `<article class="hero-card"><div class="lab">${primaryLabel}</div>${numHtml(`p-vol-${id}`, primaryValue)}${deltaLine(primaryChange)}</article>`,
+    `<article class="hero-card"><div class="lab">互动</div>${numHtml(`p-eng-${id}`, engagement)}${rateLine}</article>`,
+    `<article class="hero-card"><div class="lab">作品数</div>${numHtml(`p-works-${id}`, workCount)}</article>`,
+  ].join('');
 
-  $('#trendRange').innerHTML = [7, 30].map(days =>
-    `<button type="button" data-days="${days}" class="${state.trendDays === days ? 'selected' : ''}">近${days}日</button>`
+  const ranges = [['daily', '按日'], ['7', '7日'], ['30', '30日']];
+  $('#trendRange').innerHTML = ranges.map(([days, title]) =>
+    `<button type="button" data-days="${days}" class="${String(state.trendDays) === days ? 'selected' : ''}">${title}</button>`
   ).join('');
   $('#trendRange').querySelectorAll('button').forEach(button => {
-    button.onclick = () => { state.trendDays = Number(button.dataset.days); renderPlatformView(); };
+    button.onclick = () => {
+      state.trendDays = button.dataset.days === 'daily' ? 'daily' : Number(button.dataset.days);
+      renderPlatformView();
+    };
   });
-  const series = aggregateDailySeries(contents, id === 'wechat_mp' ? ['reads', 'plays', 'views'] : ['plays', 'views', 'reads'], state.trendDays);
-  $('#platformTrend').innerHTML = sparkSvg(`trend-${id}-${state.trendDays}`, series, { wide: true, days: state.trendDays });
+  renderTrend(contents, id);
 
   const sorts = [['plays', '播放量'], ['engagement', '互动'], ['published', '发布时间']];
   $('#workSort').innerHTML = sorts.map(([mode, title]) =>
@@ -368,23 +451,30 @@ function renderPlatformView() {
   });
   const works = sortContentsBy(contents, state.workSort);
   $('#workList').innerHTML = works.length ? works.map(content => {
-    const url = content.url ? escapeHtml(content.url) : '';
+    const title = collectedTitle(content);
+    const publishedAt = collectedTime(content.publishedAt);
+    const href = typeof content.url === 'string' && /^https?:\/\//i.test(content.url) ? content.url : '';
+    const link = href
+      ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">打开原片 ↗</a>`
+      : '<span class="missing">链接未采集到</span>';
+    const status = content.status ? `<span class="capsule">${escapeHtml(trStatus(content.status))}</span>` : '';
     return `<article class="work">
       <div class="work-head">
-        <h3>${escapeHtml(safeText(content.title))}</h3>
+        <h3${title === '未采集到' ? ' class="missing"' : ''}>${escapeHtml(title)}</h3>
         <div class="work-actions">
-          <span class="work-time">${formatDateTime(content.publishedAt || content.sourceAsOf)}</span>
-          <span class="capsule">${escapeHtml(trStatus(content.status))}</span>
-          ${url ? `<a href="${url}" target="_blank" rel="noopener noreferrer">打开原片 ↗</a>` : ''}
+          <span class="work-time${publishedAt === '未采集到' ? ' missing' : ''}">发布 ${escapeHtml(publishedAt)}</span>
+          ${status}
+          ${link}
         </div>
       </div>
       ${renderWorkKpis(content)}
+      ${renderDaily(content)}
     </article>`;
   }).join('') : '<div class="empty">暂无作品明细</div>';
 
-  const recs = recommendationsForPlatform(state.data, id, state.project);
-  $('#platformStrategy').hidden = recs.length === 0;
-  $('#platformRecommendations').innerHTML = recs.map(actionHtml).join('');
+  const advice = selectRecommendations({ data: state.data, projectId: state.project, platformId: id, limit: 4 });
+  $('#platformStrategy').hidden = !advice.notice && advice.items.length === 0;
+  showRecommendations('#platformSample', '#platformRecommendations', advice);
 }
 
 function render() {
@@ -395,6 +485,7 @@ function render() {
   $('#topbarPlatform').hidden = !onPlatform;
   if (onPlatform) {
     renderPlatformView();
+    renderFreshness(rowsForPlatform(state.platform), false);
     return;
   }
   $('#asof').textContent = `最近采集 ${latestAsOf(state.data)}`;
@@ -404,6 +495,20 @@ function render() {
   if (state.project === 'all') projectMatrix();
   renderMarket();
   renderRecommendations();
+  renderFreshness(rowsForView(), true);
+}
+
+function renderFreshness(rows, includeGenerated) {
+  const freshness = collectionFreshness(rows, { generatedAt: includeGenerated ? state.data?.generatedAt : null });
+  const banner = $('#staleBanner');
+  if (!banner) return;
+  if (freshness.stale && freshness.latest) {
+    banner.hidden = false;
+    banner.textContent = `数据停在 ${freshness.latest}，今日采集未完成`;
+  } else {
+    banner.hidden = true;
+    banner.textContent = '';
+  }
 }
 
 function goOverview() {

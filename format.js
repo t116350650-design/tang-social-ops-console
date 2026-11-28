@@ -6,7 +6,7 @@ export const DASH = '—';
 export function formatMetric(value, suffix = '') {
   return value === null || value === undefined || !Number.isFinite(Number(value)) ? DASH : `${Number(value).toLocaleString('zh-CN')}${suffix}`;
 }
-export const RATIO_KEYS = ['ctr', 'completionRate', 'avgPlayShare', 'retain5s'];
+export const RATIO_KEYS = ['ctr', 'completionRate', 'avgPlayShare', 'retain5s', 'engagementRate'];
 export function formatField(key, value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return DASH;
   if (RATIO_KEYS.includes(key)) return `${(Number(value) * 100).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}%`;
@@ -25,12 +25,28 @@ export function ratioPercent(value) {
   return Math.max(0, Math.min(100, Number(value) * 100));
 }
 
+export function metricValue(content, keys) {
+  const metrics = content?.metrics ?? {};
+  const direct = keys.find(key => metrics[key] !== null && metrics[key] !== undefined && metrics[key] !== '');
+  if (direct) {
+    const value = Number(metrics[direct]);
+    return Number.isFinite(value) ? value : null;
+  }
+  const snaps = [...(content?.daily_snapshots ?? [])].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  for (let index = snaps.length - 1; index >= 0; index -= 1) {
+    const snapMetrics = snaps[index]?.metrics ?? {};
+    const key = keys.find(candidate => snapMetrics[candidate] !== null && snapMetrics[candidate] !== undefined && snapMetrics[candidate] !== '');
+    if (!key) continue;
+    const value = Number(snapMetrics[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
 export function metricTotal(contents, keys) {
   let total = 0, found = false;
   for (const content of contents ?? []) {
-    const metrics = content.metrics ?? {};
-    const key = keys.find(candidate => metrics[candidate] !== null && metrics[candidate] !== undefined);
-    if (key) { total += Number(metrics[key]); found = true; }
+    const value = metricValue(content, keys);
+    if (value !== null) { total += value; found = true; }
   }
   return found ? total : null;
 }
@@ -119,15 +135,25 @@ export function engagementTotal(contents) {
   const keys = ['likes', 'comments', 'shares', 'collects'];
   let total = 0, found = false;
   for (const content of contents ?? []) {
-    const metrics = content.metrics ?? {};
     for (const key of keys) {
-      if (metrics[key] !== null && metrics[key] !== undefined && Number.isFinite(Number(metrics[key]))) {
-        total += Number(metrics[key]);
-        found = true;
-      }
+      const value = metricValue(content, [key]);
+      if (value !== null) { total += value; found = true; }
     }
   }
   return found ? total : null;
+}
+export function contentEngagementRate(content) {
+  const base = metricValue(content, ['plays', 'views', 'reads']);
+  if (base === null || base <= 0) return null;
+  const engagement = engagementTotal([content]);
+  if (engagement === null) return null;
+  return engagement / base;
+}
+export function portfolioEngagementRate(contents, keys = ['plays', 'views', 'reads']) {
+  const base = metricTotal(contents, keys);
+  const engagement = engagementTotal(contents);
+  if (base === null || base <= 0 || engagement === null) return null;
+  return engagement / base;
 }
 export function sortContentsBy(contents, mode = 'plays') {
   const rank = content => {
@@ -171,48 +197,6 @@ export function platformFollowers(platform) {
   }
   return null;
 }
-export function metricWindowChange(contents, keys, days = 7, now = Date.now()) {
-  const end = shanghaiDate(now);
-  const start = addIsoDays(end, -(Number(days) - 1));
-  let total = 0, found = false;
-  for (const content of contents ?? []) {
-    const snaps = [...(content.daily_snapshots ?? [])].sort((a, b) => String(a.date).localeCompare(String(b.date))).filter(snap => snap.date && snap.date >= start && snap.date <= end);
-    let change = 0, has = false;
-    for (const snap of snaps) {
-      const key = keys.find(candidate => snap.deltas?.[candidate] !== null && snap.deltas?.[candidate] !== undefined);
-      if (key) { change += Number(snap.deltas[key]); has = true; }
-    }
-    if (!has && snaps.length >= 2) {
-      const first = keys.map(key => snaps[0].metrics?.[key]).find(value => value !== null && value !== undefined);
-      const last = keys.map(key => snaps[snaps.length - 1].metrics?.[key]).find(value => value !== null && value !== undefined);
-      if (first !== undefined && last !== undefined) { change = Number(last) - Number(first); has = true; }
-    }
-    if (has) { total += change; found = true; }
-  }
-  return found ? total : null;
-}
-export function aggregateDailySeries(contents, keys, days = 7, now = Date.now()) {
-  const end = shanghaiDate(now);
-  const start = addIsoDays(end, -(Number(days) - 1));
-  const totals = new Map();
-  for (const content of contents ?? []) {
-    for (const snap of content.daily_snapshots ?? []) {
-      if (!snap.date || snap.date < start || snap.date > end) continue;
-      const value = keys.map(key => snap.metrics?.[key]).find(candidate => candidate !== null && candidate !== undefined);
-      if (value === undefined) continue;
-      totals.set(snap.date, (totals.get(snap.date) ?? 0) + Number(value));
-    }
-  }
-  const dates = [];
-  const values = [];
-  const length = Number(days);
-  for (let index = 0; index < length; index += 1) {
-    const date = addIsoDays(start, index);
-    dates.push(date);
-    values.push(totals.has(date) ? totals.get(date) : null);
-  }
-  return values.some(value => value !== null) ? { dates, values } : null;
-}
 export function parseOpsRoute(hash = '') {
   const parts = String(hash).replace(/^#/, '').split('/').map(part => {
     try { return decodeURIComponent(part); } catch { return part; }
@@ -231,21 +215,202 @@ export function buildOpsHash({ view = 'overview', project = 'all', platform } = 
   if (projectId !== 'all') return `#/project/${encodeURIComponent(projectId)}`;
   return '#/';
 }
-export function recommendationsForPlatform(data, platformId, projectId = 'all') {
-  const items = data?.recommendations ?? [];
-  if (!platformId) return [];
-  const label = Object.fromEntries(CORE_PLATFORMS)[platformId] || platformId;
-  const relatedRules = new Set(
-    (data?.diagnostics ?? [])
-      .filter(item => item.platform === platformId && (projectId === 'all' || item.projectId === projectId || !item.projectId))
-      .map(item => item.ruleId)
-      .filter(Boolean),
-  );
-  return items.filter(item => {
-    if (item.platform === platformId || item.platformId === platformId) return true;
-    const rules = Array.isArray(item.ruleIds) ? item.ruleIds : [item.ruleIds].filter(Boolean);
-    if (rules.some(rule => relatedRules.has(rule))) return true;
-    const text = `${item.title ?? ''}${item.detail ?? ''}`;
-    return text.includes(label);
+export function normalizeIsoDate(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (!match) return null;
+  const day = `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+  if (text.includes('T') || /[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) {
+    const parsed = Date.parse(text);
+    if (!Number.isNaN(parsed)) return shanghaiDate(parsed);
+  }
+  return day;
+}
+export function shortDate(value) {
+  const day = normalizeIsoDate(value);
+  return day ? `${day.slice(5, 7)}-${day.slice(8, 10)}` : '';
+}
+export function orderedSnaps(content) {
+  const byDay = new Map();
+  for (const snap of content?.daily_snapshots ?? []) {
+    const date = normalizeIsoDate(snap?.date);
+    if (date) byDay.set(date, snap);
+  }
+  return [...byDay.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, snap]) => ({ date, snap }));
+}
+function snapNumber(bag, keys) {
+  if (!bag) return null;
+  const key = keys.find(candidate => bag[candidate] !== null && bag[candidate] !== undefined && bag[candidate] !== '');
+  if (!key) return null;
+  const value = Number(bag[key]);
+  return Number.isFinite(value) ? value : null;
+}
+export function snapshotDates(contents) {
+  const dates = new Set();
+  for (const content of contents ?? []) for (const item of orderedSnaps(content)) dates.add(item.date);
+  return [...dates].sort();
+}
+export function consecutiveCollectionDays(contents) {
+  const dates = snapshotDates(contents);
+  if (!dates.length) return 0;
+  let streak = 1;
+  for (let index = dates.length - 1; index > 0; index -= 1) {
+    if (dates[index - 1] === addIsoDays(dates[index], -1)) streak += 1;
+    else break;
+  }
+  return streak;
+}
+export function hasSnapshotOn(contents, isoDate) {
+  return snapshotDates(contents).includes(isoDate);
+}
+export function dayNet(contents, keys, isoDate) {
+  let total = 0, found = false;
+  for (const content of contents ?? []) {
+    const snaps = orderedSnaps(content);
+    const index = snaps.findIndex(item => item.date === isoDate);
+    if (index < 0) continue;
+    const delta = snapNumber(snaps[index].snap?.deltas, keys);
+    if (delta !== null) { total += delta; found = true; continue; }
+    if (index > 0) {
+      const current = snapNumber(snaps[index].snap?.metrics, keys);
+      const previous = snapNumber(snaps[index - 1].snap?.metrics, keys);
+      if (current !== null && previous !== null) { total += current - previous; found = true; }
+    }
+  }
+  return found ? total : null;
+}
+export function yesterdayChange(contents, keys, now = Date.now()) {
+  const date = addIsoDays(shanghaiDate(now), -1);
+  if (!hasSnapshotOn(contents, date)) return { status: 'missing', date, value: null };
+  return { status: 'ok', date, value: dayNet(contents, keys, date) };
+}
+export function followerSnapshots(platform) {
+  const lists = [platform?.daily_snapshots, platform?.accountMetrics?.daily_snapshots];
+  return lists.find(list => Array.isArray(list) && list.length) ?? [];
+}
+export function yesterdayFollowers(platform, contents, now = Date.now()) {
+  const fromWorks = yesterdayChange(contents, ['followersGained'], now);
+  if (fromWorks.status === 'ok' && fromWorks.value !== null) return fromWorks;
+  const extra = followerSnapshots(platform);
+  if (!extra.length) return fromWorks;
+  return yesterdayChange([{ daily_snapshots: extra }], ['followersGained', 'fans', 'followers'], now);
+}
+export function aggregateDailyNet(contents, keys, { days = null, now = Date.now() } = {}) {
+  const end = shanghaiDate(now);
+  const start = days == null ? null : addIsoDays(end, -(Number(days) - 1));
+  const totals = new Map();
+  for (const content of contents ?? []) {
+    const snaps = orderedSnaps(content);
+    snaps.forEach((item, index) => {
+      if (item.date > end || (start && item.date < start)) return;
+      let net = snapNumber(item.snap?.deltas, keys);
+      if (net === null && index > 0) {
+        const current = snapNumber(item.snap?.metrics, keys);
+        const previous = snapNumber(snaps[index - 1].snap?.metrics, keys);
+        if (current !== null && previous !== null) net = current - previous;
+      }
+      const level = snapNumber(item.snap?.metrics, keys);
+      const bucket = totals.get(item.date) ?? { net: null, level: null };
+      if (net !== null) bucket.net = (bucket.net ?? 0) + net;
+      if (level !== null) bucket.level = (bucket.level ?? 0) + level;
+      totals.set(item.date, bucket);
+    });
+  }
+  const dates = [...totals.keys()].sort();
+  if (!dates.length) return null;
+  return { dates, nets: dates.map(date => totals.get(date).net), levels: dates.map(date => totals.get(date).level) };
+}
+export function cardTrend(contents, keys, now = Date.now()) {
+  const yesterday = addIsoDays(shanghaiDate(now), -1);
+  if (!hasSnapshotOn(contents, yesterday)) return { status: 'missing', yesterday };
+  const series = aggregateDailyNet(contents, keys, { days: null, now });
+  if (!series) return { status: 'missing', yesterday };
+  const netCount = series.nets.filter(value => value !== null).length;
+  const levelCount = series.levels.filter(value => value !== null).length;
+  const values = netCount >= 2 ? series.nets : series.levels;
+  const paths = netCount >= 2 || levelCount >= 2 ? sparklineFromSeries({ values }, { width: 100, height: 30, pad: 2 }) : null;
+  const index = series.dates.indexOf(yesterday);
+  return { status: 'ok', yesterday, start: series.dates[0], end: series.dates.at(-1), paths, yesterdayNet: index >= 0 ? series.nets[index] : null };
+}
+export function buildTrend(contents, keys, mode = 'daily', now = Date.now()) {
+  const days = mode === 'daily' || mode == null || mode === '' ? null : Number(mode);
+  const series = aggregateDailyNet(contents, keys, { days, now });
+  if (!series) return null;
+  const netCount = series.nets.filter(value => value !== null).length;
+  const values = netCount >= 2 ? series.nets : series.levels;
+  const paths = sparklineFromSeries({ values }, { width: 100, height: 40, pad: 4 });
+  return { ...series, paths, usesNet: netCount >= 2 };
+}
+export const WORK_FIELDS = [
+  { id: 'plays', keys: ['plays', 'views'], label: '播放' },
+  { id: 'reads', keys: ['reads'], label: '阅读' },
+  { id: 'likes', keys: ['likes'], label: '点赞' },
+  { id: 'comments', keys: ['comments'], label: '评论' },
+  { id: 'shares', keys: ['shares'], label: '分享' },
+  { id: 'collects', keys: ['collects'], label: '收藏' },
+  { id: 'impressions', keys: ['impressions'], label: '曝光' },
+  { id: 'completionRate', keys: ['completionRate'], label: '完播率', ratio: true },
+  { id: 'ctr', keys: ['ctr'], label: '点击率', ratio: true },
+  { id: 'avgPlayShare', keys: ['avgPlayShare'], label: '平均播放占比', ratio: true },
+  { id: 'retain5s', keys: ['retain5s'], label: '5秒留存', ratio: true },
+  { id: 'recommends', keys: ['recommends'], label: '推荐' },
+];
+export function presentWorkFields(content) {
+  const fields = [];
+  for (const field of WORK_FIELDS) {
+    const value = metricValue(content, field.keys);
+    if (value === null) continue;
+    fields.push({ ...field, value });
+  }
+  const rate = contentEngagementRate(content);
+  if (rate !== null) fields.push({ id: 'engagementRate', label: '互动率', value: rate, ratio: true });
+  return fields;
+}
+const DAY_COLUMNS = [
+  { id: 'plays', label: '播放', keys: ['plays', 'views'], source: 'metric' },
+  { id: 'reads', label: '阅读', keys: ['reads'], source: 'metric' },
+  { id: 'likes', label: '赞', keys: ['likes'], source: 'metric' },
+  { id: 'comments', label: '评', keys: ['comments'], source: 'metric' },
+  { id: 'collects', label: '藏', keys: ['collects'], source: 'metric' },
+  { id: 'shares', label: '转', keys: ['shares'], source: 'metric' },
+  { id: 'fans', label: '净增粉', keys: ['followersGained'], source: 'delta' },
+  { id: 'completionRate', label: '完播', keys: ['completionRate'], source: 'metric', ratio: true },
+  { id: 'ctr', label: '点击', keys: ['ctr'], source: 'metric', ratio: true },
+];
+export function contentDailyTable(content) {
+  const snaps = orderedSnaps(content);
+  if (!snaps.length) return null;
+  const rows = snaps.map(item => {
+    const cells = { date: item.date };
+    for (const column of DAY_COLUMNS) {
+      cells[column.id] = column.source === 'delta'
+        ? snapNumber(item.snap?.deltas, column.keys)
+        : snapNumber(item.snap?.metrics, column.keys);
+    }
+    return cells;
   });
+  const columns = DAY_COLUMNS.filter(column => rows.some(row => row[column.id] !== null));
+  if (!columns.length) return null;
+  return { columns, rows };
+}
+export function collectionFreshness(rows, { generatedAt = null, now = Date.now() } = {}) {
+  const today = shanghaiDate(now);
+  const dates = [];
+  const push = value => {
+    const day = normalizeIsoDate(value);
+    if (day) dates.push(day);
+  };
+  push(generatedAt);
+  for (const row of rows ?? []) {
+    push(row.platform?.login?.asOf);
+    push(row.platform?.sourceAsOf);
+    for (const content of row.contents ?? []) {
+      push(content.sourceAsOf);
+      for (const snap of content.daily_snapshots ?? []) push(snap.date);
+    }
+  }
+  if (!dates.length) return { stale: false, latest: null, today };
+  const latest = dates.sort().at(-1);
+  return { stale: latest < today, latest, today };
 }

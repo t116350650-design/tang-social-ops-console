@@ -10,7 +10,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icons/favicon.png?v=7" type="image/png">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png?v=7">
-  <link rel="stylesheet" href="./styles.css?v=7">
+  <link rel="stylesheet" href="./styles.css?v=8">
   <title>社媒运营中控平台</title>
 </head>
 <body>
@@ -22,7 +22,7 @@
       <button type="button" id="backOverview" class="back-btn" aria-label="返回总览">← 返回总览</button>
       <div class="platform-heading">
         <h1 id="platformName">平台</h1>
-        <span id="platformStatus" class="capsule">—</span>
+        <span id="platformStatus" class="capsule"></span>
       </div>
     </div>
     <div class="topbar-meta">
@@ -34,6 +34,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 10V8a4 4 0 1 1 8 0v2h1.5A1.5 1.5 0 0 1 19 11.5v8A1.5 1.5 0 0 1 17.5 21h-11A1.5 1.5 0 0 1 5 19.5v-8A1.5 1.5 0 0 1 6.5 10zm2 0h4V8a2 2 0 1 0-4 0z"/></svg>
       </button>
     </div>
+    <p id="staleBanner" class="stale" hidden role="status"></p>
   </header>
 
   <main id="dashboard" hidden>
@@ -58,8 +59,9 @@
       <section class="block">
         <div class="block-head">
           <h2>策略建议</h2>
-          <span>基于最新采集数据自动诊断</span>
+          <span>按当前快照，样本不足不出趋势判断</span>
         </div>
+        <p id="recommendationNote" class="sample-note" hidden></p>
         <div id="recommendations" class="recommendations"></div>
       </section>
     </div>
@@ -69,7 +71,7 @@
       <section id="platformHero" class="hero platform-hero" aria-label="平台核心指标"></section>
       <section class="block">
         <div class="block-head">
-          <h2>趋势</h2>
+          <h2>按日趋势</h2>
           <div id="trendRange" class="chip-set" role="tablist" aria-label="趋势区间"></div>
         </div>
         <div id="platformTrend" class="trend-card"></div>
@@ -84,8 +86,9 @@
       <section id="platformStrategy" class="block" hidden>
         <div class="block-head">
           <h2>策略建议</h2>
-          <span>仅展示当前平台相关建议</span>
+          <span>只看这个平台</span>
         </div>
+        <p id="platformSample" class="sample-note" hidden></p>
         <div id="platformRecommendations" class="recommendations"></div>
       </section>
     </div>
@@ -102,6 +105,6 @@
     </form>
   </section>
   <div id="loading" class="loading">正在读取数据快照…</div>
-  <script type="module" src="./app.js?v=7"></script>
+  <script type="module" src="./app.js?v=8"></script>
 </body>
 </html>
