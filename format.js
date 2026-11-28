@@ -65,6 +65,14 @@ export function collectPlatformRows(data) {
   for (const project of data?.projects ?? []) for (const account of project.accounts ?? []) for (const platform of account.platforms ?? []) rows.push({ project, account, platform, contents: platform.contents ?? [] });
   return rows;
 }
+export function projectHasCollectedData(project) {
+  const rows = collectPlatformRows({ projects: [project] });
+  for (const row of rows) {
+    if ((row.contents ?? []).length) return true;
+    if (platformFollowers(row.platform) !== null) return true;
+  }
+  return false;
+}
 export function summarizeRows(rows) {
   const contents = rows.flatMap(row => row.contents);
   return { plays: metricTotal(contents, ['plays', 'views']), reads: metricTotal(contents, ['reads']), playsDelta: metricDelta(contents, ['plays', 'views']), readsDelta: metricDelta(contents, ['reads']) };
